@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AllStats - Gols Predictor</title>
+    <title>AllStats - Timeline</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0d0f12; color: #ffffff; font-family: sans-serif; -webkit-tap-highlight-color: transparent; }
@@ -11,9 +11,9 @@
         .is-green { background-color: #22c55e !important; color: #000 !important; font-weight: 900; }
         .is-red { background-color: #ef4444 !important; color: #fff !important; font-weight: 900; }
         .not-green { background-color: #ffffff !important; color: #000 !important; font-weight: 900; }
-        .live-pulse { width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; animation: pulse 1.5s infinite; }
+        .date-header { font-size: 11px; font-weight: 900; color: #6b7280; text-transform: uppercase; letter-spacing: 0.15em; margin: 30px 0 10px 4px; border-bottom: 1px solid #1f2937; padding-bottom: 4px; }
+        .live-dot { width: 6px; height: 6px; background-color: #ef4444; border-radius: 50%; display: inline-block; animation: pulse 1s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        .date-header { font-size: 11px; font-weight: 900; color: #6b7280; text-transform: uppercase; letter-spacing: 0.15em; margin: 24px 0 8px 4px; border-bottom: 1px solid #1f2937; padding-bottom: 4px; }
     </style>
 </head>
 <body class="pb-10">
@@ -37,31 +37,28 @@
 
         <div id="status-container" class="text-center py-20">
             <div id="loading-msg" class="text-gray-500 font-bold text-xs uppercase tracking-widest animate-pulse">
-                Organizando Calendário...
+                Organizando Timeline...
             </div>
             <div id="auth-btn" class="hidden">
                 <a href="https://cors-anywhere.herokuapp.com/corsdemo" target="_blank" 
                    class="bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg inline-block uppercase text-xs tracking-wider">
-                    🔓 Liberar Acesso aos Dados
+                    🔓 Liberar Acesso
                 </a>
-                <p class="text-[10px] text-gray-500 mt-4">Clique acima, depois em "Request temporary access".</p>
+                <p class="text-[10px] text-gray-500 mt-4">Clique acima, libere o acesso e volte aqui.</p>
             </div>
         </div>
 
-        <div id="live-area"></div>
-        <div id="finished-area"></div>
-        <div id="next-area"></div>
+        <div id="content-area"></div>
     </main>
 
     <script>
         const API_KEY = 'b12ef8888e5148479abd9c6632c8e00b';
         const PROXY = 'https://cors-anywhere.herokuapp.com/'; 
 
-        // Data Local YYYY-MM-DD
         function getLocalYMD(offset = 0) {
             const d = new Date();
             d.setDate(d.getDate() + offset);
-            return d.toLocaleDateString('en-CA'); // Formato ISO local
+            return d.toLocaleDateString('en-CA');
         }
 
         async function fetchData() {
@@ -69,8 +66,8 @@
             document.getElementById('auth-btn').classList.add('hidden');
 
             try {
-                // Range ampliado: Ontem até +7 dias
-                const start = getLocalYMD(-1); 
+                // Busca de Ontem até +7 dias
+                const start = getLocalYMD(-1);
                 const end = getLocalYMD(7);
                 
                 const res = await fetch(`${PROXY}https://api.football-data.org/v4/matches?dateFrom=${start}&dateTo=${end}`, {
@@ -85,27 +82,15 @@
 
                 const data = await res.json();
                 document.getElementById('status-container').classList.add('hidden');
-
-                const live = data.matches.filter(m => m.status === 'IN_PLAY' || m.status === 'PAUSED');
-                const finished = data.matches.filter(m => m.status === 'FINISHED');
-                const upcoming = data.matches.filter(m => m.status === 'TIMED' || m.status === 'SCHEDULED');
-
-                // Renderização Simples para Ao Vivo
-                renderSimpleSection('live-area', live, 'Ao Vivo', true);
                 
-                // Renderização Agrupada por Data
-                renderGroupedSection('finished-area', finished, 'audit', false);
-                renderGroupedSection('next-area', upcoming, 'schedule', false);
-
-                updateCounters(finished);
+                processAndRender(data.matches);
 
             } catch (e) {
                 console.error(e);
-                document.getElementById('loading-msg').innerText = "Erro de conexão.";
+                document.getElementById('loading-msg').innerText = "Erro ao carregar.";
             }
         }
 
-        // --- Lógica de Palpites ---
         function analyze(match) {
             const seed = match.homeTeam.id + match.awayTeam.id;
             const power = seed % 100;
@@ -114,45 +99,105 @@
             return { mkt, prob: 70 + (seed % 20) };
         }
 
-        function calculateWin(stat, h, a, isFinished) {
-            const total = h + a;
-            const target = parseFloat(stat.mkt.match(/[\d\.]+/)[0]);
-            if (stat.mkt.includes('-')) return isFinished && total < target;
-            return total >= target;
+        function processAndRender(matches) {
+            const container = document.getElementById('content-area');
+            container.innerHTML = '';
+
+            // Grupos principais
+            const live = matches.filter(m => m.status === 'IN_PLAY' || m.status === 'PAUSED');
+            const finished = matches.filter(m => m.status === 'FINISHED');
+            const scheduled = matches.filter(m => m.status === 'TIMED' || m.status === 'SCHEDULED' || m.status === 'POSTPONED');
+
+            // 1. Renderiza AO VIVO (Topo)
+            if (live.length > 0) {
+                container.innerHTML += `<div class="date-header text-red-500 flex items-center gap-2"><span class="live-dot"></span> ACONTECENDO AGORA</div>`;
+                container.innerHTML += live.map(m => renderCard(m, 'live')).join('');
+            }
+
+            // 2. Renderiza FINALIZADOS (Auditados) - Ordenação: Ontem -> Hoje
+            if (finished.length > 0) {
+                // Agrupar por data
+                const groups = groupByDate(finished);
+                // Ordenar as chaves (Datas) de forma CRESCENTE (Ontem primeiro)
+                const sortedDates = Object.keys(groups).sort();
+                
+                sortedDates.forEach(date => {
+                    const title = formatDateTitle(date, true);
+                    container.innerHTML += `<div class="date-header">${title} (ENCERRADOS)</div>`;
+                    // Dentro da data, ordena por horário
+                    groups[date].sort((a,b) => new Date(a.utcDate) - new Date(b.utcDate));
+                    container.innerHTML += groups[date].map(m => renderCard(m, 'finished')).join('');
+                });
+                
+                updateCounters(finished);
+            }
+
+            // 3. Renderiza PRÓXIMOS (Agenda) - Ordenação: Hoje -> Amanhã
+            if (scheduled.length > 0) {
+                const groups = groupByDate(scheduled);
+                const sortedDates = Object.keys(groups).sort();
+
+                sortedDates.forEach(date => {
+                    const title = formatDateTitle(date, false);
+                    container.innerHTML += `<div class="date-header">${title}</div>`;
+                    groups[date].sort((a,b) => new Date(a.utcDate) - new Date(b.utcDate));
+                    container.innerHTML += groups[date].map(m => renderCard(m, 'scheduled')).join('');
+                });
+            }
         }
 
-        // --- Renderização ---
-        
-        function renderCardHTML(match, isLive, isFinished) {
+        function renderCard(match, type) {
             const stat = analyze(match);
             const h = match.score.fullTime.home || 0;
             const a = match.score.fullTime.away || 0;
-            const win = calculateWin(stat, h, a, isFinished);
-
-            let statusClass = 'not-green';
-            let statusText = 'Aguardando';
+            const total = h + a;
             
-            if (isFinished) {
-                statusClass = win ? 'is-green' : 'is-red';
-                statusText = win ? '🎯 Green' : '❌ Red';
-            } else if (win) {
-                statusClass = 'is-green';
-                statusText = '🎯 Bateu';
+            // Lógica de Vitória
+            let win = false;
+            const target = parseFloat(stat.mkt.match(/[\d\.]+/)[0]);
+
+            if (stat.mkt.includes('+')) {
+                // Over: Ganha se bater a meta (Live ou Fim)
+                win = total >= target;
+            } else {
+                // Under: SÓ GANHA SE O JOGO ACABAR e ficar abaixo
+                win = (type === 'finished') && (total < target);
             }
 
+            // Definição de Cores e Texto
+            let statusClass = 'not-green';
+            let statusText = 'Aguardando';
+
+            if (type === 'finished') {
+                statusClass = win ? 'is-green' : 'is-red';
+                statusText = win ? '🎯 Green' : '❌ Red';
+            } else if (type === 'live') {
+                if (win && stat.mkt.includes('+')) {
+                     statusClass = 'is-green';
+                     statusText = '🎯 Bateu';
+                } else {
+                    statusText = 'Em Jogo';
+                }
+            } else if (type === 'scheduled') {
+                // TRAVA DE SEGURANÇA: Jogos agendados SEMPRE são brancos
+                statusClass = 'not-green';
+                statusText = 'Aguardando';
+            }
+
+            // Formatação de Data/Hora
             const dt = new Date(match.utcDate);
             const timeStr = dt.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
             const dateStr = dt.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
             
-            // Texto do status no topo do card
-            let topStatus = isLive ? 'EM JOGO' : timeStr;
-            if (isFinished) topStatus = `FIM • ${dateStr} ${timeStr}`;
+            let topStatus = timeStr;
+            if (type === 'finished') topStatus = `FIM • ${dateStr} - ${timeStr}`;
+            if (type === 'live') topStatus = 'EM ANDAMENTO';
 
             return `
             <div class="match-card p-4">
                 <div class="flex justify-between text-[9px] mb-4 font-black text-gray-500 uppercase">
                     <span>${match.area.name} - ${match.competition.name}</span>
-                    <span class="${isLive ? 'text-red-500 animate-pulse' : ''}">${topStatus}</span>
+                    <span class="${type === 'live' ? 'text-red-500 animate-pulse' : ''}">${topStatus}</span>
                 </div>
                 <div class="flex items-center justify-between">
                     <div class="flex-1 space-y-4">
@@ -176,55 +221,29 @@
             </div>`;
         }
 
-        function renderSimpleSection(id, list, title, isLive) {
-            const container = document.getElementById(id);
-            container.innerHTML = '';
-            if (!list.length) return;
-            
-            container.innerHTML = `<h2 class="text-[10px] font-black text-gray-500 uppercase mb-3 mt-6 flex items-center gap-2 tracking-widest">
-                <span class="live-pulse"></span> ${title} (${list.length})</h2>` + 
-                list.map(m => renderCardHTML(m, isLive, false)).join('');
-        }
-
-        function renderGroupedSection(id, list, type, isFinishedFallback) {
-            const container = document.getElementById(id);
-            container.innerHTML = '';
-            if (!list.length) return;
-
-            // Agrupa por data (YYYY-MM-DD)
+        // Utilitários
+        function groupByDate(list) {
             const groups = {};
             list.forEach(m => {
-                // Ajuste de fuso para garantir agrupamento correto
                 const localDate = new Date(m.utcDate).toLocaleDateString('en-CA');
                 if (!groups[localDate]) groups[localDate] = [];
                 groups[localDate].push(m);
             });
+            return groups;
+        }
 
-            // Ordena as chaves (Datas)
-            let keys = Object.keys(groups).sort();
+        function formatDateTitle(dateKey, isAudit) {
+            const today = getLocalYMD(0);
+            const yest = getLocalYMD(-1);
+            const tmrw = getLocalYMD(1);
             
-            // Se for Auditoria (Finished), inverte para mostrar HOJE primeiro, depois ONTEM
-            if (type === 'audit') keys.reverse();
-
-            keys.forEach(dateKey => {
-                const groupList = groups[dateKey];
-                const dateObj = new Date(dateKey + 'T12:00:00'); // Evita bug de timezone na conversão
-                
-                // Formatação do Título da Data
-                let title = dateObj.toLocaleDateString('pt-BR', {weekday: 'long', day: '2-digit', month: '2-digit'});
-                
-                const today = getLocalYMD(0);
-                const yest = getLocalYMD(-1);
-                
-                if (dateKey === today) title = `HOJE (${title})`;
-                else if (dateKey === yest) title = `ONTEM (${title})`;
-
-                container.innerHTML += `<div class="date-header">${title}</div>`;
-                
-                // Renderiza os cards deste grupo
-                const isFinishedGroup = type === 'audit'; 
-                container.innerHTML += groupList.map(m => renderCardHTML(m, false, isFinishedGroup)).join('');
-            });
+            const dateObj = new Date(dateKey + 'T12:00:00');
+            let title = dateObj.toLocaleDateString('pt-BR', {weekday: 'long', day: '2-digit', month: '2-digit'});
+            
+            if (dateKey === today) return `HOJE (${title})`;
+            if (dateKey === yest) return `ONTEM (${title})`;
+            if (dateKey === tmrw) return `AMANHÃ (${title})`;
+            return title;
         }
 
         function updateCounters(finished) {
@@ -232,10 +251,17 @@
             const today = getLocalYMD(0);
             
             finished.forEach(match => {
-                // Conta apenas os finalizados de HOJE no placar
                 if (new Date(match.utcDate).toLocaleDateString('en-CA') === today) {
                     const stat = analyze(match);
-                    const win = calculateWin(stat, match.score.fullTime.home || 0, match.score.fullTime.away || 0, true);
+                    const h = match.score.fullTime.home || 0;
+                    const a = match.score.fullTime.away || 0;
+                    const total = h + a;
+                    const target = parseFloat(stat.mkt.match(/[\d\.]+/)[0]);
+                    
+                    let win = false;
+                    if (stat.mkt.includes('+')) win = total >= target;
+                    else win = total < target;
+                    
                     win ? greens++ : reds++;
                 }
             });
@@ -245,8 +271,6 @@
         }
         
         fetchData();
-        
-        // Auto-refresh na virada do dia
         setInterval(() => {
             const now = new Date();
             if (now.getHours() === 0 && now.getMinutes() === 0) fetchData();

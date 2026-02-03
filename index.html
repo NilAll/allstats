@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AllStats - Auditoria de Gols</title>
+    <title>AllStats - Gols Predictor</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0d0f12; color: #ffffff; font-family: sans-serif; -webkit-tap-highlight-color: transparent; }
@@ -42,24 +42,25 @@
 
     <script>
         const API_KEY = 'b12ef8888e5148479abd9c6632c8e00b';
-        const PROXY = 'https://cors-anywhere.herokuapp.com/';
+        // MUDANÇA AQUI: Trocamos para um proxy que geralmente não pede clique
+        const PROXY = 'https://corsproxy.io/?'; 
 
         async function fetchData() {
             try {
-                // Busca histórico recente para auditoria e próximos dias para agenda
                 const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
                 const start = yesterday.toISOString().split('T')[0];
                 const end = new Date(); end.setDate(end.getDate() + 5);
                 const dateTo = end.toISOString().split('T')[0];
 
-                const res = await fetch(`${PROXY}https://api.football-data.org/v4/matches?dateFrom=${start}&dateTo=${dateTo}`, {
+                // URL corrigida para o novo proxy
+                const url = `${PROXY}${encodeURIComponent(`https://api.football-data.org/v4/matches?dateFrom=${start}&dateTo=${dateTo}`)}`;
+                
+                const res = await fetch(url, {
                     headers: { 'X-Auth-Token': API_KEY }
                 });
 
-                if (res.status === 403) {
-                    document.getElementById('status').innerHTML = `<a href="${PROXY}corsdemo" target="_blank" class="bg-blue-600 p-3 rounded-lg text-white inline-block text-xs uppercase font-bold">Autorizar Proxy</a>`;
-                    return;
-                }
+                if (!res.ok) throw new Error('Erro API');
+
                 const data = await res.json();
                 document.getElementById('status').classList.add('hidden');
                 
@@ -72,15 +73,16 @@
                 renderSection('next-area', upcoming, 'Próximos Jogos', false, false);
 
                 updateCounters(finished);
-            } catch (e) { document.getElementById('status').innerText = "Erro ao carregar dados."; }
+            } catch (e) { 
+                // Se der erro no proxy automático, volta a pedir autorização no antigo como fallback
+                document.getElementById('status').innerHTML = `<p class="mb-2">Acesso bloqueado.</p><a href="https://cors-anywhere.herokuapp.com/corsdemo" target="_blank" class="bg-blue-600 p-3 rounded-lg text-white inline-block text-xs uppercase font-bold">Tentar Ativar Proxy Manual</a>`;
+            }
         }
 
         function analyze(match) {
-            // Lógica fixa baseada no ID dos times
             const seed = match.homeTeam.id + match.awayTeam.id;
             const power = seed % 100;
             let mkt = power > 75 ? '+3.5 Gols' : power > 45 ? '+2.5 Gols' : power > 15 ? '+1.5 Gols' : '+0.5 Gols';
-            // Palpite de Under para jogos muito "travados"
             if (power < 8) mkt = '- 2.5 Gols';
             return { mkt, prob: 70 + (seed % 20) };
         }
@@ -90,10 +92,8 @@
             const target = parseFloat(stat.mkt.match(/[\d\.]+/)[0]);
             
             if (stat.mkt.includes('-')) {
-                // CORREÇÃO: Under só é Green se o jogo já terminou e não ultrapassou
                 return isFinished && total < target;
             } else {
-                // Over é Green assim que bate a meta
                 return total >= target;
             }
         }
@@ -120,19 +120,15 @@
                 const stat = analyze(match);
                 const h = match.score.fullTime.home || 0;
                 const a = match.score.fullTime.away || 0;
-                
-                // Usamos a nova função corrigida de cálculo de vitória
                 const win = calculateWin(stat, h, a, isFinished);
                 
-                // Status visual
-                let statusClass = 'not-green'; // Padrão: Branco (Aguardando)
+                let statusClass = 'not-green';
                 let statusText = 'Aguardando';
 
                 if (isFinished) {
                     statusClass = win ? 'is-green' : 'is-red';
                     statusText = win ? '🎯 Green' : '❌ Red';
                 } else if (win) {
-                    // Se não acabou mas já bateu a meta (ex: Over 0.5 e está 1x0)
                     statusClass = 'is-green';
                     statusText = '🎯 Bateu';
                 }

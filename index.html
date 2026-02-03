@@ -36,15 +36,15 @@
 
         <div id="status-container" class="text-center py-20">
             <div id="loading-msg" class="text-gray-500 font-bold text-xs uppercase tracking-widest animate-pulse">
-                Carregando Dados...
+                Buscando Jogos...
             </div>
             <div id="auth-btn" class="hidden">
-                <p class="text-gray-400 text-sm mb-4 px-6">Para proteger a API, é necessária uma validação de segurança do navegador.</p>
+                <p class="text-gray-400 text-sm mb-4 px-6">Validação de segurança necessária para ver os jogos.</p>
                 <a href="https://cors-anywhere.herokuapp.com/corsdemo" target="_blank" 
                    class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-900/50 transition-all inline-block uppercase text-xs tracking-wider">
-                    🔓 Liberar Acesso aos Dados
+                    🔓 Liberar Acesso
                 </a>
-                <p class="text-[10px] text-gray-600 mt-4">Clique no botão acima, depois em "Request access" na página que abrir.</p>
+                <p class="text-[10px] text-gray-600 mt-4">Clique no botão, depois em "Request access" e volte aqui.</p>
             </div>
         </div>
 
@@ -55,26 +55,32 @@
 
     <script>
         const API_KEY = 'b12ef8888e5148479abd9c6632c8e00b';
-        // Voltando para o Proxy Manual (Estável)
         const PROXY = 'https://cors-anywhere.herokuapp.com/'; 
 
+        // Função auxiliar para pegar data local formato YYYY-MM-DD
+        function getLocalDateString(offsetDays = 0) {
+            const d = new Date();
+            d.setDate(d.getDate() + offsetDays);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
         async function fetchData() {
-            // UI Reset
             document.getElementById('loading-msg').classList.remove('hidden');
             document.getElementById('auth-btn').classList.add('hidden');
             
             try {
-                // Buscando dados de Ontem até +5 dias
-                const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-                const start = yesterday.toISOString().split('T')[0];
-                const end = new Date(); end.setDate(end.getDate() + 5);
-                const dateTo = end.toISOString().split('T')[0];
-
-                const res = await fetch(`${PROXY}https://api.football-data.org/v4/matches?dateFrom=${start}&dateTo=${dateTo}`, {
+                // CORREÇÃO: Usando data LOCAL. Pega de Ontem (-1) até +6 dias.
+                const start = getLocalDateString(-1);
+                const end = getLocalDateString(6);
+                
+                // Adicionei um número aleatório no final (&_=${Date.now()}) para evitar Cache do celular
+                const res = await fetch(`${PROXY}https://api.football-data.org/v4/matches?dateFrom=${start}&dateTo=${end}&_=${Date.now()}`, {
                     headers: { 'X-Auth-Token': API_KEY }
                 });
 
-                // Se der erro 403, mostra o botão de liberar acesso
                 if (res.status === 403) {
                     document.getElementById('loading-msg').classList.add('hidden');
                     document.getElementById('auth-btn').classList.remove('hidden');
@@ -82,30 +88,29 @@
                 }
 
                 const data = await res.json();
-                
-                // Sucesso: Esconde loading e processa
                 document.getElementById('status-container').classList.add('hidden');
                 
+                // Filtros
                 const live = data.matches.filter(m => m.status === 'IN_PLAY' || m.status === 'PAUSED');
                 const finished = data.matches.filter(m => m.status === 'FINISHED');
                 const upcoming = data.matches.filter(m => m.status === 'TIMED' || m.status === 'SCHEDULED');
 
                 renderSection('live-area', live, 'Ao Vivo', true, false);
-                renderSection('finished-area', finished, 'Auditados (Hoje/Ontem)', false, true);
+                renderSection('finished-area', finished, 'Finalizados (Ontem/Hoje)', false, true);
                 renderSection('next-area', upcoming, 'Próximos Jogos', false, false);
 
                 updateCounters(finished);
 
             } catch (e) { 
-                document.getElementById('loading-msg').innerText = "Erro de Conexão";
+                document.getElementById('loading-msg').innerText = "Erro. Verifique internet ou Proxy.";
                 console.error(e);
             }
         }
 
         function analyze(match) {
+            // Lógica fixa de palpites
             const seed = match.homeTeam.id + match.awayTeam.id;
             const power = seed % 100;
-            // Lógica de Mercados
             let mkt = power > 75 ? '+3.5 Gols' : power > 45 ? '+2.5 Gols' : power > 15 ? '+1.5 Gols' : '+0.5 Gols';
             if (power < 8) mkt = '- 2.5 Gols';
             return { mkt, prob: 70 + (seed % 20) };
@@ -116,24 +121,30 @@
             const target = parseFloat(stat.mkt.match(/[\d\.]+/)[0]);
             
             if (stat.mkt.includes('-')) {
-                // Under: Só é Green se acabou E ficou abaixo
+                // Menos Gols: Só é Green se acabou E ficou abaixo
                 return isFinished && total < target;
             } else {
-                // Over: É Green assim que bate a meta
+                // Mais Gols: É Green assim que bate a meta
                 return total >= target;
             }
         }
 
         function updateCounters(finished) {
             let greens = 0, reds = 0;
+            // Filtra para contar apenas os finalizados de HOJE no placar, para ser justo
+            const todayStr = getLocalDateString(0);
+            
             finished.forEach(match => {
-                const stat = analyze(match);
-                const win = calculateWin(stat, match.score.fullTime.home || 0, match.score.fullTime.away || 0, true);
-                win ? greens++ : reds++;
+                // Conta no placar se for de hoje. Se quiser contar ontem também, remova o if.
+                if(match.utcDate.includes(todayStr)) {
+                    const stat = analyze(match);
+                    const win = calculateWin(stat, match.score.fullTime.home || 0, match.score.fullTime.away || 0, true);
+                    win ? greens++ : reds++;
+                }
             });
             document.getElementById('green-count').innerText = greens;
             document.getElementById('red-count').innerText = reds;
-            document.getElementById('stats-summary').classList.remove('hidden');
+            if (greens + reds > 0) document.getElementById('stats-summary').classList.remove('hidden');
         }
 
         function renderSection(id, list, title, isLive, isFinished) {
@@ -168,7 +179,7 @@
                 <div class="match-card p-4">
                     <div class="flex justify-between text-[9px] mb-4 font-black text-gray-500 uppercase">
                         <span>${match.area.name} - ${match.competition.name}</span>
-                        <span>${isFinished ? 'FINALIZADO' : (isLive ? 'EM JOGO' : dateStr + ' ' + timeStr)}</span>
+                        <span>${isFinished ? 'FIM' : (isLive ? 'LIVE' : dateStr + ' ' + timeStr)}</span>
                     </div>
                     <div class="flex items-center justify-between">
                         <div class="flex-1 space-y-4">
@@ -193,8 +204,18 @@
             }).join('');
         }
         
-        // Inicia a busca
+        // Inicia
         fetchData();
+
+        // Sistema de Auto-Refresh à Meia-Noite
+        let lastDay = new Date().getDate();
+        setInterval(() => {
+            const currentDay = new Date().getDate();
+            if (currentDay !== lastDay) {
+                lastDay = currentDay;
+                fetchData(); // Recarrega tudo automaticamente na virada do dia
+            }
+        }, 60000); // Checa a cada 1 minuto
     </script>
 </body>
 </html>
